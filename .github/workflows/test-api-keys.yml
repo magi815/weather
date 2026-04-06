@@ -1,0 +1,20 @@
+name: Test API Keys
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-keys:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test API Key 1 (Default)
+        run: |
+          echo "=== Testing Key 1: 5dc22e...0f8b ==="
+          curl -s "https://api.openweathermap.org/data/2.5/weather?q=Seoul&appid=5dc22e4c9efa9e54f2d1b9915ac70f8b&units=metric&lang=ko" | head -200
+          echo ""
+
+      - name: Test API Key 2 (wt)
+        run: |
+          echo "=== Testing Key 2: 2f6cdd...02e3 ==="
+          curl -s "https://api.openweathermap.org/data/2.5/weather?q=Seoul&appid=2f6cdda0eb3a4fdbed544e8edda202e3&units=metric&lang=ko" | head -200
+          echo ""
