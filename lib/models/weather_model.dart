@@ -13,6 +13,7 @@ class WeatherData {
   final int sunrise;
   final int sunset;
   final int visibility;
+  final String providerName;
   final List<HourlyForecast> hourlyForecast;
   final List<DailyForecast> dailyForecast;
 
@@ -31,35 +32,19 @@ class WeatherData {
     required this.sunrise,
     required this.sunset,
     required this.visibility,
+    this.providerName = '',
     this.hourlyForecast = const [],
     this.dailyForecast = const [],
   });
 
-  factory WeatherData.fromJson(Map<String, dynamic> json) {
-    return WeatherData(
-      cityName: json['name'] ?? '',
-      temperature: (json['main']['temp'] as num).toDouble(),
-      feelsLike: (json['main']['feels_like'] as num).toDouble(),
-      tempMin: (json['main']['temp_min'] as num).toDouble(),
-      tempMax: (json['main']['temp_max'] as num).toDouble(),
-      humidity: json['main']['humidity'] as int,
-      pressure: json['main']['pressure'] as int,
-      windSpeed: (json['wind']['speed'] as num).toDouble(),
-      description: json['weather'][0]['description'] ?? '',
-      icon: json['weather'][0]['icon'] ?? '01d',
-      main: json['weather'][0]['main'] ?? '',
-      sunrise: json['sys']['sunrise'] as int,
-      sunset: json['sys']['sunset'] as int,
-      visibility: json['visibility'] ?? 10000,
-    );
-  }
-
   WeatherData copyWith({
+    String? cityName,
+    String? providerName,
     List<HourlyForecast>? hourlyForecast,
     List<DailyForecast>? dailyForecast,
   }) {
     return WeatherData(
-      cityName: cityName,
+      cityName: cityName ?? this.cityName,
       temperature: temperature,
       feelsLike: feelsLike,
       tempMin: tempMin,
@@ -73,6 +58,7 @@ class WeatherData {
       sunrise: sunrise,
       sunset: sunset,
       visibility: visibility,
+      providerName: providerName ?? this.providerName,
       hourlyForecast: hourlyForecast ?? this.hourlyForecast,
       dailyForecast: dailyForecast ?? this.dailyForecast,
     );
@@ -91,15 +77,6 @@ class HourlyForecast {
     required this.icon,
     required this.description,
   });
-
-  factory HourlyForecast.fromJson(Map<String, dynamic> json) {
-    return HourlyForecast(
-      dateTime: DateTime.fromMillisecondsSinceEpoch(json['dt'] * 1000),
-      temperature: (json['main']['temp'] as num).toDouble(),
-      icon: json['weather'][0]['icon'] ?? '01d',
-      description: json['weather'][0]['description'] ?? '',
-    );
-  }
 }
 
 class DailyForecast {

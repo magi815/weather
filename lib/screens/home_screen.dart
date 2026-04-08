@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import '../models/weather_model.dart';
-import '../services/weather_service.dart';
+import '../services/weather_provider.dart';
+import '../services/open_meteo_provider.dart';
+import '../services/openweathermap_provider.dart';
+import '../services/wttr_provider.dart';
 import '../widgets/weather_icon_helper.dart';
 import 'search_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -14,15 +18,28 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final WeatherService _weatherService = WeatherService();
+  WeatherProvider _provider = OpenMeteoProvider();
+  WeatherProviderType _currentProviderType = WeatherProviderType.openMeteo;
   WeatherData? _weatherData;
   bool _isLoading = true;
   String _errorMessage = '';
+  String _lastCity = '';
 
   @override
   void initState() {
     super.initState();
     _loadWeather();
+  }
+
+  WeatherProvider _createProvider(WeatherProviderType type) {
+    switch (type) {
+      case WeatherProviderType.openMeteo:
+        return OpenMeteoProvider();
+      case WeatherProviderType.openWeatherMap:
+        return OpenWeatherMapProvider();
+      case WeatherProviderType.wttrIn:
+        return WttrProvider();
+    }
   }
 
   Future<void> _loadWeather() async {
@@ -32,30 +49,60 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      // Try to get current location
       Position position = await _getCurrentPosition();
-      final weather = await _weatherService.getWeatherByLocation(
+      final weather = await _provider.getWeatherByLocation(
         position.latitude,
         position.longitude,
       );
       setState(() {
         _weatherData = weather;
+        _lastCity = '';
         _isLoading = false;
       });
     } catch (e) {
-      // Fallback to Seoul if location fails
       try {
-        final weather = await _weatherService.getWeatherByCity('Seoul');
+        final weather = await _provider.getWeatherByCity('Seoul');
         setState(() {
           _weatherData = weather;
+          _lastCity = 'Seoul';
           _isLoading = false;
         });
       } catch (e) {
         setState(() {
           _isLoading = false;
-          _errorMessage = '날씨 정보를 불러올 수 없습니다.\nAPI 키를 확인해주세요.';
+          _errorMessage = '날씨 정보를 불러올 수 없습니다.\n${_provider.name} 서비스를 확인해주세요.';
         });
       }
+    }
+  }
+
+  Future<void> _reloadWithProvider(WeatherProviderType type) async {
+    setState(() {
+      _currentProviderType = type;
+      _provider = _createProvider(type);
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
+    try {
+      WeatherData weather;
+      if (_lastCity.isNotEmpty) {
+        weather = await _provider.getWeatherByCity(_lastCity);
+      } else if (_weatherData != null) {
+        weather =
+            await _provider.getWeatherByCity(_weatherData!.cityName);
+      } else {
+        weather = await _provider.getWeatherByCity('Seoul');
+      }
+      setState(() {
+        _weatherData = weather;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = '${_provider.name}에서 날씨 정보를 가져올 수 없습니다.';
+      });
     }
   }
 
@@ -91,17 +138,31 @@ class _HomeScreenState extends State<HomeScreen> {
         _errorMessage = '';
       });
       try {
-        final weather = await _weatherService.getWeatherByCity(result);
+        final weather = await _provider.getWeatherByCity(result);
         setState(() {
           _weatherData = weather;
+          _lastCity = result;
           _isLoading = false;
         });
       } catch (e) {
         setState(() {
           _isLoading = false;
-          _errorMessage = '\"$result\" 도시를 찾을 수 없습니다';
+          _errorMessage = '"$result" 도시를 찾을 수 없습니다';
         });
       }
+    }
+  }
+
+  Future<void> _openSettings() async {
+    final result = await Navigator.push<WeatherProviderType>(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            SettingsScreen(currentProvider: _currentProviderType),
+      ),
+    );
+    if (result != null && result != _currentProviderType) {
+      _reloadWithProvider(result);
     }
   }
 
@@ -112,6 +173,10 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.settings),
+          onPressed: _openSettings,
+        ),
         title: Text(
           _weatherData?.cityName ?? '날씨',
           style: const TextStyle(
@@ -200,10 +265,38 @@ class _HomeScreenState extends State<HomeScreen> {
                 _buildDailyForecast(weather),
                 const SizedBox(height: 20),
                 _buildWeatherDetails(weather),
+                const SizedBox(height: 12),
+                _buildProviderBadge(weather),
                 const SizedBox(height: 30),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProviderBadge(WeatherData weather) {
+    return GestureDetector(
+      onTap: _openSettings,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withAlpha(20),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.source_outlined, color: Colors.white38, size: 14),
+            const SizedBox(width: 6),
+            Text(
+              '데이터: ${weather.providerName}',
+              style: const TextStyle(color: Colors.white38, fontSize: 12),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right, color: Colors.white38, size: 14),
+          ],
         ),
       ),
     );
@@ -385,7 +478,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildWeatherDetails(WeatherData weather) {
-    final sunrise = DateTime.fromMillisecondsSinceEpoch(weather.sunrise * 1000);
+    final sunrise =
+        DateTime.fromMillisecondsSinceEpoch(weather.sunrise * 1000);
     final sunset = DateTime.fromMillisecondsSinceEpoch(weather.sunset * 1000);
 
     return Container(
@@ -410,17 +504,11 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Expanded(
                 child: _buildDetailItem(
-                  Icons.water_drop,
-                  '습도',
-                  '${weather.humidity}%',
-                ),
+                    Icons.water_drop, '습도', '${weather.humidity}%'),
               ),
               Expanded(
                 child: _buildDetailItem(
-                  Icons.air,
-                  '바람',
-                  '${weather.windSpeed} m/s',
-                ),
+                    Icons.air, '바람', '${weather.windSpeed.toStringAsFixed(1)} m/s'),
               ),
             ],
           ),
@@ -429,39 +517,29 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Expanded(
                 child: _buildDetailItem(
-                  Icons.compress,
-                  '기압',
-                  '${weather.pressure} hPa',
-                ),
+                    Icons.compress, '기압', '${weather.pressure} hPa'),
               ),
               Expanded(
-                child: _buildDetailItem(
-                  Icons.visibility,
-                  '가시거리',
-                  '${(weather.visibility / 1000).toStringAsFixed(1)} km',
-                ),
+                child: _buildDetailItem(Icons.visibility, '가시거리',
+                    '${(weather.visibility / 1000).toStringAsFixed(1)} km'),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildDetailItem(
-                  Icons.wb_twilight,
-                  '일출',
-                  DateFormat('HH:mm').format(sunrise),
+          if (weather.sunrise > 0) ...[
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildDetailItem(Icons.wb_twilight, '일출',
+                      DateFormat('HH:mm').format(sunrise)),
                 ),
-              ),
-              Expanded(
-                child: _buildDetailItem(
-                  Icons.nightlight_round,
-                  '일몰',
-                  DateFormat('HH:mm').format(sunset),
+                Expanded(
+                  child: _buildDetailItem(Icons.nightlight_round, '일몰',
+                      DateFormat('HH:mm').format(sunset)),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ],
       ),
     );
