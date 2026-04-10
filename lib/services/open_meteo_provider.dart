@@ -1,17 +1,14 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/weather_model.dart';
-import 'weather_provider.dart';
+import '../models/weather_agency.dart';
 
-class OpenMeteoProvider extends WeatherProvider {
-  @override
-  WeatherProviderType get type => WeatherProviderType.openMeteo;
-  @override
-  String get name => 'Open-Meteo';
+class OpenMeteoProvider {
+  final WeatherAgency agency;
 
-  @override
+  OpenMeteoProvider({required this.agency});
+
   Future<WeatherData> getWeatherByCity(String cityName) async {
-    // Step 1: Geocode city name to coordinates
     final geoUrl =
         'https://geocoding-api.open-meteo.com/v1/search?name=$cityName&count=1&language=ko&format=json';
     final geoResponse = await http.get(Uri.parse(geoUrl));
@@ -34,14 +31,12 @@ class OpenMeteoProvider extends WeatherProvider {
     return weather.copyWith(cityName: resolvedName);
   }
 
-  @override
   Future<WeatherData> getWeatherByLocation(double lat, double lon) async {
-    // Reverse geocode to get city name
-    final geoUrl =
-        'https://geocoding-api.open-meteo.com/v1/search?name=${lat.toStringAsFixed(2)},${lon.toStringAsFixed(2)}&count=1&language=ko&format=json';
-
     String cityName = '현재 위치';
     try {
+      // Use reverse geocoding via nearby city search
+      final geoUrl =
+          'https://geocoding-api.open-meteo.com/v1/search?name=&count=1&language=ko&format=json&latitude=$lat&longitude=$lon';
       final geoResponse = await http.get(Uri.parse(geoUrl));
       if (geoResponse.statusCode == 200) {
         final geoData = json.decode(geoResponse.body);
@@ -59,6 +54,11 @@ class OpenMeteoProvider extends WeatherProvider {
   }
 
   Future<WeatherData> _fetchWeather(double lat, double lon) async {
+    // Build model parameter
+    final modelParam = agency.globalModel == 'best_match'
+        ? ''
+        : '&models=${agency.globalModel}';
+
     final url = 'https://api.open-meteo.com/v1/forecast'
         '?latitude=$lat&longitude=$lon'
         '&current=temperature_2m,relative_humidity_2m,apparent_temperature,'
@@ -66,12 +66,13 @@ class OpenMeteoProvider extends WeatherProvider {
         '&hourly=temperature_2m,weather_code'
         '&daily=temperature_2m_max,temperature_2m_min,weather_code,sunrise,sunset'
         '&timezone=auto'
-        '&forecast_days=7';
+        '&forecast_days=7'
+        '$modelParam';
 
     final response = await http.get(Uri.parse(url));
 
     if (response.statusCode != 200) {
-      throw Exception('날씨 정보를 가져올 수 없습니다');
+      throw Exception('${agency.name} 모델에서 날씨 정보를 가져올 수 없습니다');
     }
 
     final data = json.decode(response.body);
@@ -86,7 +87,6 @@ class OpenMeteoProvider extends WeatherProvider {
     final weatherCode = current['weather_code'] as int;
     final weatherInfo = _getWeatherInfo(weatherCode);
 
-    // Parse sunrise/sunset from daily data
     int sunrise = 0;
     int sunset = 0;
     if (daily != null &&
@@ -98,7 +98,7 @@ class OpenMeteoProvider extends WeatherProvider {
           DateTime.parse(daily['sunset'][0]).millisecondsSinceEpoch ~/ 1000;
     }
 
-    // Parse hourly forecast
+    // Hourly forecast
     List<HourlyForecast> hourlyForecast = [];
     if (hourly != null) {
       final times = hourly['time'] as List;
@@ -120,7 +120,7 @@ class OpenMeteoProvider extends WeatherProvider {
       }
     }
 
-    // Parse daily forecast
+    // Daily forecast
     List<DailyForecast> dailyForecast = [];
     if (daily != null) {
       final times = daily['time'] as List;
@@ -159,15 +159,13 @@ class OpenMeteoProvider extends WeatherProvider {
       sunrise: sunrise,
       sunset: sunset,
       visibility: ((current['visibility'] ?? 10000) as num).toInt(),
-      providerName: 'Open-Meteo',
+      providerName: '${agency.flag} ${agency.name}',
       hourlyForecast: hourlyForecast,
       dailyForecast: dailyForecast,
     );
   }
 
   static Map<String, String> _getWeatherInfo(int code) {
-    // WMO Weather interpretation codes
-    // https://open-meteo.com/en/docs
     switch (code) {
       case 0:
         return {'main': 'Clear', 'description': '맑음', 'icon': '01d'};

@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import '../models/weather_model.dart';
-import '../services/weather_provider.dart';
+import '../models/weather_agency.dart';
 import '../services/open_meteo_provider.dart';
-import '../services/openweathermap_provider.dart';
-import '../services/wttr_provider.dart';
 import '../widgets/weather_icon_helper.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
@@ -18,28 +16,22 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  WeatherProvider _provider = OpenMeteoProvider();
-  WeatherProviderType _currentProviderType = WeatherProviderType.openMeteo;
+  String _currentAgencyId = 'best_match';
   WeatherData? _weatherData;
   bool _isLoading = true;
   String _errorMessage = '';
   String _lastCity = '';
 
+  WeatherAgency get _currentAgency =>
+      weatherAgencies.firstWhere((a) => a.id == _currentAgencyId);
+
+  OpenMeteoProvider get _provider =>
+      OpenMeteoProvider(agency: _currentAgency);
+
   @override
   void initState() {
     super.initState();
     _loadWeather();
-  }
-
-  WeatherProvider _createProvider(WeatherProviderType type) {
-    switch (type) {
-      case WeatherProviderType.openMeteo:
-        return OpenMeteoProvider();
-      case WeatherProviderType.openWeatherMap:
-        return OpenWeatherMapProvider();
-      case WeatherProviderType.wttrIn:
-        return WttrProvider();
-    }
   }
 
   Future<void> _loadWeather() async {
@@ -70,16 +62,16 @@ class _HomeScreenState extends State<HomeScreen> {
       } catch (e) {
         setState(() {
           _isLoading = false;
-          _errorMessage = '날씨 정보를 불러올 수 없습니다.\n${_provider.name} 서비스를 확인해주세요.';
+          _errorMessage =
+              '${_currentAgency.name} 모델에서\n날씨 정보를 불러올 수 없습니다.';
         });
       }
     }
   }
 
-  Future<void> _reloadWithProvider(WeatherProviderType type) async {
+  Future<void> _reloadWithAgency(String agencyId) async {
     setState(() {
-      _currentProviderType = type;
-      _provider = _createProvider(type);
+      _currentAgencyId = agencyId;
       _isLoading = true;
       _errorMessage = '';
     });
@@ -89,8 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (_lastCity.isNotEmpty) {
         weather = await _provider.getWeatherByCity(_lastCity);
       } else if (_weatherData != null) {
-        weather =
-            await _provider.getWeatherByCity(_weatherData!.cityName);
+        weather = await _provider.getWeatherByCity(_weatherData!.cityName);
       } else {
         weather = await _provider.getWeatherByCity('Seoul');
       }
@@ -101,16 +92,15 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       setState(() {
         _isLoading = false;
-        _errorMessage = '${_provider.name}에서 날씨 정보를 가져올 수 없습니다.';
+        _errorMessage =
+            '${_currentAgency.name} 모델에서\n해당 지역의 데이터를 제공하지 않습니다.\n다른 기관을 선택해주세요.';
       });
     }
   }
 
   Future<Position> _getCurrentPosition() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      throw Exception('위치 서비스가 비활성화되어 있습니다');
-    }
+    if (!serviceEnabled) throw Exception('위치 서비스가 비활성화되어 있습니다');
 
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
@@ -119,7 +109,6 @@ class _HomeScreenState extends State<HomeScreen> {
         throw Exception('위치 권한이 거부되었습니다');
       }
     }
-
     if (permission == LocationPermission.deniedForever) {
       throw Exception('위치 권한이 영구적으로 거부되었습니다');
     }
@@ -154,15 +143,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openSettings() async {
-    final result = await Navigator.push<WeatherProviderType>(
+    final result = await Navigator.push<String>(
       context,
       MaterialPageRoute(
         builder: (_) =>
-            SettingsScreen(currentProvider: _currentProviderType),
+            SettingsScreen(currentAgencyId: _currentAgencyId),
       ),
     );
-    if (result != null && result != _currentProviderType) {
-      _reloadWithProvider(result);
+    if (result != null && result != _currentAgencyId) {
+      _reloadWithAgency(result);
     }
   }
 
@@ -174,26 +163,19 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.settings),
+          icon: const Icon(Icons.tune),
           onPressed: _openSettings,
+          tooltip: '기상 데이터 기관 선택',
         ),
         title: Text(
           _weatherData?.cityName ?? '날씨',
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 20,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 20),
         ),
         centerTitle: true,
         actions: [
+          IconButton(icon: const Icon(Icons.search), onPressed: _searchCity),
           IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: _searchCity,
-          ),
-          IconButton(
-            icon: const Icon(Icons.my_location),
-            onPressed: _loadWeather,
-          ),
+              icon: const Icon(Icons.my_location), onPressed: _loadWeather),
         ],
       ),
       body: _buildBody(),
@@ -206,8 +188,18 @@ class _HomeScreenState extends State<HomeScreen> {
         decoration: BoxDecoration(
           gradient: WeatherIconHelper.getWeatherGradient('clear'),
         ),
-        child: const Center(
-          child: CircularProgressIndicator(color: Colors.white),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(color: Colors.white),
+              const SizedBox(height: 16),
+              Text(
+                '${_currentAgency.flag} ${_currentAgency.name}',
+                style: const TextStyle(color: Colors.white60, fontSize: 14),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -229,14 +221,29 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: const TextStyle(color: Colors.white, fontSize: 16),
               ),
               const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: _loadWeather,
-                icon: const Icon(Icons.refresh),
-                label: const Text('다시 시도'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white24,
-                  foregroundColor: Colors.white,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: _loadWeather,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('다시 시도'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white24,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    onPressed: _openSettings,
+                    icon: const Icon(Icons.tune),
+                    label: const Text('기관 변경'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white24,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -266,7 +273,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 20),
                 _buildWeatherDetails(weather),
                 const SizedBox(height: 12),
-                _buildProviderBadge(weather),
+                _buildAgencyBadge(weather),
                 const SizedBox(height: 30),
               ],
             ),
@@ -276,7 +283,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildProviderBadge(WeatherData weather) {
+  Widget _buildAgencyBadge(WeatherData weather) {
     return GestureDetector(
       onTap: _openSettings,
       child: Container(
@@ -288,12 +295,8 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.source_outlined, color: Colors.white38, size: 14),
-            const SizedBox(width: 6),
-            Text(
-              '데이터: ${weather.providerName}',
-              style: const TextStyle(color: Colors.white38, fontSize: 12),
-            ),
+            Text(weather.providerName,
+                style: const TextStyle(color: Colors.white54, fontSize: 12)),
             const SizedBox(width: 4),
             const Icon(Icons.chevron_right, color: Colors.white38, size: 14),
           ],
@@ -305,44 +308,21 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildCurrentWeather(WeatherData weather) {
     return Column(
       children: [
-        Icon(
-          WeatherIconHelper.getWeatherIcon(weather.icon),
-          size: 100,
-          color: Colors.white,
-        ),
+        Icon(WeatherIconHelper.getWeatherIcon(weather.icon),
+            size: 100, color: Colors.white),
         const SizedBox(height: 10),
-        Text(
-          '${weather.temperature.round()}°',
-          style: const TextStyle(
-            fontSize: 80,
-            fontWeight: FontWeight.w200,
-            color: Colors.white,
-          ),
-        ),
-        Text(
-          weather.description,
-          style: const TextStyle(
-            fontSize: 20,
-            color: Colors.white70,
-            fontWeight: FontWeight.w400,
-          ),
-        ),
+        Text('${weather.temperature.round()}°',
+            style: const TextStyle(
+                fontSize: 80, fontWeight: FontWeight.w200, color: Colors.white)),
+        Text(weather.description,
+            style: const TextStyle(
+                fontSize: 20, color: Colors.white70, fontWeight: FontWeight.w400)),
         const SizedBox(height: 8),
-        Text(
-          '최고 ${weather.tempMax.round()}° / 최저 ${weather.tempMin.round()}°',
-          style: const TextStyle(
-            fontSize: 16,
-            color: Colors.white60,
-          ),
-        ),
+        Text('최고 ${weather.tempMax.round()}° / 최저 ${weather.tempMin.round()}°',
+            style: const TextStyle(fontSize: 16, color: Colors.white60)),
         const SizedBox(height: 4),
-        Text(
-          '체감온도 ${weather.feelsLike.round()}°',
-          style: const TextStyle(
-            fontSize: 14,
-            color: Colors.white54,
-          ),
-        ),
+        Text('체감온도 ${weather.feelsLike.round()}°',
+            style: const TextStyle(fontSize: 14, color: Colors.white54)),
       ],
     );
   }
@@ -359,14 +339,9 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '시간별 예보',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          const Text('시간별 예보',
+              style: TextStyle(
+                  color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
           const SizedBox(height: 12),
           SizedBox(
             height: 100,
@@ -381,26 +356,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      Text(
-                        DateFormat('HH시').format(hourly.dateTime),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                        ),
-                      ),
-                      Icon(
-                        WeatherIconHelper.getWeatherIcon(hourly.icon),
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                      Text(
-                        '${hourly.temperature.round()}°',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
+                      Text(DateFormat('HH시').format(hourly.dateTime),
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 13)),
+                      Icon(WeatherIconHelper.getWeatherIcon(hourly.icon),
+                          color: Colors.white, size: 28),
+                      Text('${hourly.temperature.round()}°',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500)),
                     ],
                   ),
                 );
@@ -424,14 +389,9 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '일별 예보',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          const Text('일별 예보',
+              style: TextStyle(
+                  color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           ...weather.dailyForecast.map((daily) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -439,36 +399,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     SizedBox(
                       width: 80,
-                      child: Text(
-                        DateFormat('E', 'ko').format(daily.dateTime),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                        ),
-                      ),
+                      child: Text(DateFormat('E', 'ko').format(daily.dateTime),
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 15)),
                     ),
-                    Icon(
-                      WeatherIconHelper.getWeatherIcon(daily.icon),
-                      color: Colors.white,
-                      size: 24,
-                    ),
+                    Icon(WeatherIconHelper.getWeatherIcon(daily.icon),
+                        color: Colors.white, size: 24),
                     const Spacer(),
-                    Text(
-                      '${daily.tempMax.round()}°',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
+                    Text('${daily.tempMax.round()}°',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500)),
                     const SizedBox(width: 16),
-                    Text(
-                      '${daily.tempMin.round()}°',
-                      style: const TextStyle(
-                        color: Colors.white60,
-                        fontSize: 15,
-                      ),
-                    ),
+                    Text('${daily.tempMin.round()}°',
+                        style: const TextStyle(
+                            color: Colors.white60, fontSize: 15)),
                   ],
                 ),
               )),
@@ -491,83 +437,39 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '상세 정보',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          const Text('상세 정보',
+              style: TextStyle(
+                  color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildDetailItem(
-                    Icons.water_drop, '습도', '${weather.humidity}%'),
-              ),
-              Expanded(
-                child: _buildDetailItem(
-                    Icons.air, '바람', '${weather.windSpeed.toStringAsFixed(1)} m/s'),
-              ),
-            ],
-          ),
+          Row(children: [
+            Expanded(child: _detailItem(Icons.water_drop, '습도', '${weather.humidity}%')),
+            Expanded(child: _detailItem(Icons.air, '바람', '${weather.windSpeed.toStringAsFixed(1)} m/s')),
+          ]),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildDetailItem(
-                    Icons.compress, '기압', '${weather.pressure} hPa'),
-              ),
-              Expanded(
-                child: _buildDetailItem(Icons.visibility, '가시거리',
-                    '${(weather.visibility / 1000).toStringAsFixed(1)} km'),
-              ),
-            ],
-          ),
+          Row(children: [
+            Expanded(child: _detailItem(Icons.compress, '기압', '${weather.pressure} hPa')),
+            Expanded(child: _detailItem(Icons.visibility, '가시거리', '${(weather.visibility / 1000).toStringAsFixed(1)} km')),
+          ]),
           if (weather.sunrise > 0) ...[
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildDetailItem(Icons.wb_twilight, '일출',
-                      DateFormat('HH:mm').format(sunrise)),
-                ),
-                Expanded(
-                  child: _buildDetailItem(Icons.nightlight_round, '일몰',
-                      DateFormat('HH:mm').format(sunset)),
-                ),
-              ],
-            ),
+            Row(children: [
+              Expanded(child: _detailItem(Icons.wb_twilight, '일출', DateFormat('HH:mm').format(sunrise))),
+              Expanded(child: _detailItem(Icons.nightlight_round, '일몰', DateFormat('HH:mm').format(sunset))),
+            ]),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildDetailItem(IconData icon, String label, String value) {
-    return Row(
-      children: [
-        Icon(icon, color: Colors.white60, size: 20),
-        const SizedBox(width: 8),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(color: Colors.white54, fontSize: 12),
-            ),
-            Text(
-              value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
+  Widget _detailItem(IconData icon, String label, String value) {
+    return Row(children: [
+      Icon(icon, color: Colors.white60, size: 20),
+      const SizedBox(width: 8),
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+        Text(value, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
+      ]),
+    ]);
   }
 }

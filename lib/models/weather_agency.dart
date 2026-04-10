@@ -1,0 +1,152 @@
+class WeatherAgency {
+  final String id;
+  final String name;
+  final String country;
+  final String flag;
+  final String description;
+  final String globalModel;
+  final String? localModel;
+  final String resolution;
+  final String coverage;
+
+  const WeatherAgency({
+    required this.id,
+    required this.name,
+    required this.country,
+    required this.flag,
+    required this.description,
+    required this.globalModel,
+    this.localModel,
+    required this.resolution,
+    required this.coverage,
+  });
+}
+
+const List<WeatherAgency> weatherAgencies = [
+  WeatherAgency(
+    id: 'best_match',
+    name: '자동 (최적 조합)',
+    country: '글로벌',
+    flag: '🌍',
+    description: 'Open-Meteo가 위치에 따라 최적의 모델을 자동 선택합니다',
+    globalModel: 'best_match',
+    resolution: '1~11 km',
+    coverage: '전 세계',
+  ),
+  WeatherAgency(
+    id: 'kma',
+    name: 'KMA 기상청',
+    country: '한국',
+    flag: '🇰🇷',
+    description: '한국기상청 (Korea Meteorological Administration)',
+    globalModel: 'kma_gdps',
+    localModel: 'kma_ldps',
+    resolution: '12 km (글로벌) / 1.5 km (한반도)',
+    coverage: '전 세계 / 한반도 상세',
+  ),
+  WeatherAgency(
+    id: 'dwd',
+    name: 'DWD',
+    country: '독일',
+    flag: '🇩🇪',
+    description: 'Deutscher Wetterdienst (독일 기상청)',
+    globalModel: 'icon_global',
+    localModel: 'icon_eu',
+    resolution: '11 km (글로벌) / 7 km (유럽)',
+    coverage: '전 세계 / 유럽 상세',
+  ),
+  WeatherAgency(
+    id: 'noaa',
+    name: 'NOAA',
+    country: '미국',
+    flag: '🇺🇸',
+    description: 'National Oceanic and Atmospheric Administration (미국 해양대기청)',
+    globalModel: 'gfs_global',
+    localModel: 'gfs_hrrr',
+    resolution: '13 km (글로벌) / 3 km (북미)',
+    coverage: '전 세계 / 북미 상세',
+  ),
+  WeatherAgency(
+    id: 'ecmwf',
+    name: 'ECMWF',
+    country: '유럽',
+    flag: '🇪🇺',
+    description: 'European Centre for Medium-Range Weather Forecasts (유럽 중기예보센터)',
+    globalModel: 'ecmwf_ifs025',
+    resolution: '25 km',
+    coverage: '전 세계 (중기예보 특화)',
+  ),
+  WeatherAgency(
+    id: 'meteofrance',
+    name: 'Météo-France',
+    country: '프랑스',
+    flag: '🇫🇷',
+    description: 'Météo-France (프랑스 기상청)',
+    globalModel: 'meteofrance_arpege_world025',
+    localModel: 'meteofrance_arome_france0025',
+    resolution: '25 km (글로벌) / 2.5 km (프랑스)',
+    coverage: '전 세계 / 프랑스·유럽 상세',
+  ),
+  WeatherAgency(
+    id: 'jma',
+    name: 'JMA',
+    country: '일본',
+    flag: '🇯🇵',
+    description: 'Japan Meteorological Agency (일본 기상청)',
+    globalModel: 'jma_gsm',
+    localModel: 'jma_msm',
+    resolution: '55 km (글로벌) / 5 km (일본)',
+    coverage: '전 세계 / 일본·동아시아 상세',
+  ),
+  WeatherAgency(
+    id: 'ukmo',
+    name: 'Met Office',
+    country: '영국',
+    flag: '🇬🇧',
+    description: 'UK Met Office (영국 기상청)',
+    globalModel: 'ukmo_global_deterministic_10km',
+    resolution: '10 km',
+    coverage: '전 세계',
+  ),
+  WeatherAgency(
+    id: 'cmc',
+    name: 'CMC',
+    country: '캐나다',
+    flag: '🇨🇦',
+    description: 'Canadian Meteorological Centre (캐나다 기상센터)',
+    globalModel: 'gem_global',
+    localModel: 'gem_hrdps',
+    resolution: '15 km (글로벌) / 2.5 km (캐나다)',
+    coverage: '전 세계 / 캐나다 상세',
+  ),
+  WeatherAgency(
+    id: 'bom',
+    name: 'BOM',
+    country: '호주',
+    flag: '🇦🇺',
+    description: 'Bureau of Meteorology (호주 기상국)',
+    globalModel: 'bom_access_global',
+    resolution: '15 km',
+    coverage: '전 세계 / 호주·남태평양',
+  ),
+  WeatherAgency(
+    id: 'cma',
+    name: 'CMA',
+    country: '중국',
+    flag: '🇨🇳',
+    description: 'China Meteorological Administration (중국 기상국)',
+    globalModel: 'cma_grapes_global',
+    resolution: '13 km',
+    coverage: '전 세계 / 동아시아',
+  ),
+  WeatherAgency(
+    id: 'metno',
+    name: 'MET Norway',
+    country: '노르웨이',
+    flag: '🇳🇴',
+    description: 'Meteorologisk institutt (노르웨이 기상연구소)',
+    globalModel: 'metno_nordic_pp',
+    resolution: '1 km',
+    coverage: '북유럽',
+  ),
+];
