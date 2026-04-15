@@ -32,37 +32,23 @@ class OpenMeteoProvider {
   }
 
   Future<WeatherData> getWeatherByLocation(double lat, double lon) async {
-    String cityName = '현재 위치';
-    try {
-      // Use reverse geocoding via nearby city search
-      final geoUrl =
-          'https://geocoding-api.open-meteo.com/v1/search?name=&count=1&language=ko&format=json&latitude=$lat&longitude=$lon';
-      final geoResponse = await http.get(Uri.parse(geoUrl));
-      if (geoResponse.statusCode == 200) {
-        final geoData = json.decode(geoResponse.body);
-        if (geoData['results'] != null &&
-            (geoData['results'] as List).isNotEmpty) {
-          cityName = geoData['results'][0]['name'] ?? cityName;
-        }
-      }
-    } catch (_) {}
-
     final weather = await _fetchWeather(lat, lon);
     return weather.copyWith(
-      cityName: weather.cityName.isEmpty ? cityName : weather.cityName,
+      cityName: weather.cityName.isEmpty ? '현재 위치' : weather.cityName,
     );
   }
 
   Future<WeatherData> _fetchWeather(double lat, double lon) async {
-    // Build model parameter
-    final modelParam = agency.globalModel == 'best_match'
+    // Build model parameter - only add for non-best_match
+    final modelParam = agency.modelParam == 'best_match'
         ? ''
-        : '&models=${agency.globalModel}';
+        : '&models=${agency.modelParam}';
 
+    // Use minimal variables that are supported across all models
     final url = 'https://api.open-meteo.com/v1/forecast'
         '?latitude=$lat&longitude=$lon'
         '&current=temperature_2m,relative_humidity_2m,apparent_temperature,'
-        'weather_code,surface_pressure,wind_speed_10m,visibility'
+        'weather_code,surface_pressure,wind_speed_10m'
         '&hourly=temperature_2m,weather_code'
         '&daily=temperature_2m_max,temperature_2m_min,weather_code,sunrise,sunset'
         '&timezone=auto'
@@ -72,10 +58,29 @@ class OpenMeteoProvider {
     final response = await http.get(Uri.parse(url));
 
     if (response.statusCode != 200) {
-      throw Exception('${agency.name} 모델에서 날씨 정보를 가져올 수 없습니다');
+      final body = response.body;
+      // Parse error message from API
+      try {
+        final errorData = json.decode(body);
+        if (errorData['reason'] != null) {
+          throw Exception(
+              '${agency.name}: ${errorData['reason']}');
+        }
+      } catch (_) {}
+      throw Exception(
+          '${agency.name} 모델에서 날씨 정보를 가져올 수 없습니다 (${response.statusCode})');
     }
 
     final data = json.decode(response.body);
+
+    // Check if current data is valid
+    final current = data['current'];
+    if (current == null ||
+        current['temperature_2m'] == null) {
+      throw Exception(
+          '${agency.name} 모델은 이 지역의 데이터를 제공하지 않습니다.\n다른 기관을 선택해주세요.');
+    }
+
     return _parseWeatherData(data);
   }
 
@@ -84,32 +89,41 @@ class OpenMeteoProvider {
     final daily = data['daily'];
     final hourly = data['hourly'];
 
-    final weatherCode = current['weather_code'] as int;
+    final weatherCode = (current['weather_code'] as num?)?.toInt() ?? 0;
     final weatherInfo = _getWeatherInfo(weatherCode);
 
     int sunrise = 0;
     int sunset = 0;
     if (daily != null &&
         daily['sunrise'] != null &&
-        (daily['sunrise'] as List).isNotEmpty) {
-      sunrise =
-          DateTime.parse(daily['sunrise'][0]).millisecondsSinceEpoch ~/ 1000;
-      sunset =
-          DateTime.parse(daily['sunset'][0]).millisecondsSinceEpoch ~/ 1000;
+        (daily['sunrise'] as List).isNotEmpty &&
+        daily['sunrise'][0] != null) {
+      try {
+        sunrise =
+            DateTime.parse(daily['sunrise'][0]).millisecondsSinceEpoch ~/ 1000;
+        sunset =
+            DateTime.parse(daily['sunset'][0]).millisecondsSinceEpoch ~/ 1000;
+      } catch (_) {}
     }
 
-    // Hourly forecast
+    // Hourly forecast (null-safe)
     List<HourlyForecast> hourlyForecast = [];
-    if (hourly != null) {
+    if (hourly != null &&
+        hourly['time'] != null &&
+        hourly['temperature_2m'] != null) {
       final times = hourly['time'] as List;
       final temps = hourly['temperature_2m'] as List;
-      final codes = hourly['weather_code'] as List;
+      final codes = (hourly['weather_code'] as List?) ?? [];
       final now = DateTime.now();
 
       for (int i = 0; i < times.length && hourlyForecast.length < 12; i++) {
+        if (temps[i] == null) continue;
         final dt = DateTime.parse(times[i]);
         if (dt.isAfter(now)) {
-          final info = _getWeatherInfo(codes[i] as int);
+          final code = i < codes.length && codes[i] != null
+              ? (codes[i] as num).toInt()
+              : 0;
+          final info = _getWeatherInfo(code);
           hourlyForecast.add(HourlyForecast(
             dateTime: dt,
             temperature: (temps[i] as num).toDouble(),
@@ -120,16 +134,22 @@ class OpenMeteoProvider {
       }
     }
 
-    // Daily forecast
+    // Daily forecast (null-safe)
     List<DailyForecast> dailyForecast = [];
-    if (daily != null) {
+    if (daily != null &&
+        daily['time'] != null &&
+        daily['temperature_2m_max'] != null) {
       final times = daily['time'] as List;
       final maxTemps = daily['temperature_2m_max'] as List;
       final minTemps = daily['temperature_2m_min'] as List;
-      final codes = daily['weather_code'] as List;
+      final codes = (daily['weather_code'] as List?) ?? [];
 
       for (int i = 0; i < times.length; i++) {
-        final info = _getWeatherInfo(codes[i] as int);
+        if (maxTemps[i] == null || minTemps[i] == null) continue;
+        final code = i < codes.length && codes[i] != null
+            ? (codes[i] as num).toInt()
+            : 0;
+        final info = _getWeatherInfo(code);
         dailyForecast.add(DailyForecast(
           dateTime: DateTime.parse(times[i]),
           tempMax: (maxTemps[i] as num).toDouble(),
@@ -140,25 +160,38 @@ class OpenMeteoProvider {
       }
     }
 
+    double safeDouble(dynamic v, [double def = 0]) =>
+        v == null ? def : (v as num).toDouble();
+    int safeInt(dynamic v, [int def = 0]) =>
+        v == null ? def : (v as num).toInt();
+
+    final tempMin = daily != null &&
+            daily['temperature_2m_min'] != null &&
+            (daily['temperature_2m_min'] as List).isNotEmpty
+        ? safeDouble(daily['temperature_2m_min'][0])
+        : safeDouble(current['temperature_2m']);
+    final tempMax = daily != null &&
+            daily['temperature_2m_max'] != null &&
+            (daily['temperature_2m_max'] as List).isNotEmpty
+        ? safeDouble(daily['temperature_2m_max'][0])
+        : safeDouble(current['temperature_2m']);
+
     return WeatherData(
       cityName: '',
-      temperature: (current['temperature_2m'] as num).toDouble(),
-      feelsLike: (current['apparent_temperature'] as num).toDouble(),
-      tempMin: daily != null
-          ? (daily['temperature_2m_min'][0] as num).toDouble()
-          : 0,
-      tempMax: daily != null
-          ? (daily['temperature_2m_max'][0] as num).toDouble()
-          : 0,
-      humidity: (current['relative_humidity_2m'] as num).toInt(),
-      pressure: (current['surface_pressure'] as num).toInt(),
-      windSpeed: (current['wind_speed_10m'] as num).toDouble() / 3.6,
+      temperature: safeDouble(current['temperature_2m']),
+      feelsLike: safeDouble(
+          current['apparent_temperature'], safeDouble(current['temperature_2m'])),
+      tempMin: tempMin,
+      tempMax: tempMax,
+      humidity: safeInt(current['relative_humidity_2m']),
+      pressure: safeInt(current['surface_pressure'], 1013),
+      windSpeed: safeDouble(current['wind_speed_10m']) / 3.6,
       description: weatherInfo['description']!,
       icon: weatherInfo['icon']!,
       main: weatherInfo['main']!,
       sunrise: sunrise,
       sunset: sunset,
-      visibility: ((current['visibility'] ?? 10000) as num).toInt(),
+      visibility: 10000,
       providerName: '${agency.flag} ${agency.name}',
       hourlyForecast: hourlyForecast,
       dailyForecast: dailyForecast,
@@ -210,11 +243,7 @@ class OpenMeteoProvider {
       case 86:
         return {'main': 'Snow', 'description': '눈 소나기', 'icon': '13d'};
       case 95:
-        return {
-          'main': 'Thunderstorm',
-          'description': '뇌우',
-          'icon': '11d'
-        };
+        return {'main': 'Thunderstorm', 'description': '뇌우', 'icon': '11d'};
       case 96:
       case 99:
         return {
